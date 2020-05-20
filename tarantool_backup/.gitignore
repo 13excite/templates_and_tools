@@ -1,0 +1,12 @@
+.idea
+*.json
+vendor
+*.yaml
+.DS_Store
+.idea
+__pycache__
+*.log
+*.pyc
+./*.ini
+.vscode
+env

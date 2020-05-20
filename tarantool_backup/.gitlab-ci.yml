@@ -1,0 +1,30 @@
+variables:
+    PKG_ARCH: 'x86_64'
+
+stages:
+    - build
+    - deploy
+
+# сборка пакета через fpm https://github.com/jordansissel/fpm/wiki
+buildRpm:
+    stage: build
+    script: build.sh
+
+# деплой в тестинг репозитории, для любык коммитов в ветку master
+deployToTesting:
+    stage: deploy
+    script: deployToTesting.sh
+    only:
+        refs:
+            - master
+
+# деплой пакета в продакшен репозитории, при создании тега
+deployToProduction:
+    stage: deploy
+    only:
+        - tags
+    except:
+        - branches
+    script: deployToProduction.sh
+
+
