@@ -1,0 +1,156 @@
+- hosts: proxy
+  vars:
+    version: "1.4.2"
+    interface: "eth0"
+    dante_port: "1089"
+  tasks:
+  - name: install dependencies
+    become: true
+    become_method: su
+    become_user: root
+    yum: name={{ item }} state=present
+    with_items:
+      - "@Development tools"
+      - pam-devel
+  - name: fetch dante
+    get_url:
+      url: "https://www.inet.no/dante/files/dante-{{ version }}.tar.gz"
+      dest: "/tmp/dante-{{ version }}.tar.gz"
+  - name: unpack dante
+    unarchive:
+      remote_src: yes
+      src: "/tmp/dante-{{ version }}.tar.gz"
+      dest: "/tmp"
+  - name: configure dante
+    command: ./configure --prefix=/opt/dante chdir="/tmp/dante-{{ version }}"
+  - name: make dante
+    command: make chdir="/tmp/dante-{{ version }}"
+  - name: install dante
+    become: true
+    become_method: su
+    become_user: root
+    command: make install chdir="/tmp/dante-{{ version }}"
+  - name: touch misc configuration files
+    tags:
+      - configuration
+    become: true
+    become_method: su
+    become_user: root
+    file:
+      path: "{{ item }}"
+      state: touch
+      owner: root
+      group: root
+      mode: 0644
+    with_items:
+      - /opt/dante/danted.conf
+      - /etc/systemd/system/dante.service
+      - /etc/pam.d/sockd
+  - name: dante configuration
+    tags:
+      - configuration
+    become: true
+    become_method: su
+    become_user: root
+    blockinfile:
+      dest: "/opt/dante/danted.conf"
+      block: |
+        logoutput: stderr
+
+        internal: {{ interface }} port = {{ dante_port }}
+
+        external: {{ interface }}
+
+        user.notprivileged: nobody
+        clientmethod: none
+        socksmethod: pam.username
+
+        client pass {
+            from: 0.0.0.0/0 to: 0.0.0.0/0
+            log: error connect disconnect
+        }
+
+        socks pass {
+            from: 0.0.0.0/0 to: 0.0.0.0/0
+            log: error connect disconnect
+        }
+
+        socks block {
+            from: 0.0.0.0/0 to: 127.0.0.0/8
+            log: connect error
+        }
+  - name: dante systemd service file
+    tags:
+      - configuration
+    become: true
+    become_method: su
+    become_user: root
+    blockinfile:
+      dest: "/etc/systemd/system/dante.service"
+      block: |
+        [Unit]
+        Description=Dante socks proxy
+
+        [Service]
+        User=root
+        WorkingDirectory=/opt/dante
+        ExecStart=/opt/dante/sbin/sockd -f /opt/dante/danted.conf
+        Restart=always
+        RestartSec=180
+
+        [Install]
+        WantedBy=multi-user.target
+  - name: PAM configuration
+    tags:
+      - configuration
+    become: true
+    become_method: su
+    become_user: root
+    blockinfile:
+      dest: "/etc/pam.d/sockd"
+      block: |
+        #%PAM-1.0
+        #auth      required     pam_sepermit.so
+        auth       substack     password-auth
+        auth       include      postlogin
+        # Used with polkit to reauthorize users in remote sessions
+        -auth      optional     pam_reauthorize.so prepare
+        account    required     pam_nologin.so
+        account    include      password-auth
+        password   include      password-auth
+        # pam_selinux.so close should be the first session rule
+        session    required     pam_selinux.so close
+        session    required     pam_loginuid.so
+        # pam_selinux.so open should only be followed by sessions to be executed in the user context
+        session    required     pam_selinux.so open env_params
+        session    required     pam_namespace.so
+        session    optional     pam_keyinit.so force revoke
+        session    include      password-auth
+        session    include      postlogin
+        # Used with polkit to reauthorize users in remote sessions
+        -session   optional     pam_reauthorize.so prepare
+  - name: create user with password "blabla"
+    tags:
+      - configuration
+      - user
+    become: true
+    become_method: su
+    become_user: root
+    user:
+      name: dantes
+      state: present
+      shell: /sbin/nologin
+      # python2 -c 'import crypt; print crypt.crypt("passs", "$1$12qasfhf$")'
+      password: $blablabla
+      update_password: always
+  - name: start and enable dante
+    tags:
+      - run
+    become: true
+    become_method: su
+    become_user: root
+    systemd:
+      daemon_reload: yes
+      state: restarted
+      enabled: yes
+      name: dante
