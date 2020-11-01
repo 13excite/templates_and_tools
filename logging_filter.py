@@ -13,3 +13,12 @@ class SanitizeSSNFilter(logging.Filter):
             record.args = tuple(newargs)
 
         return 2
+
+
+class DelayFilterer(logging.Filter):
+    """ Logging filter which inserts a delay between each log record """
+    def __init__(self, delay_secs=1):
+        self.delay_secs = delay_secs
+    def filter(self, record):
+        time.sleep(self.delay_secs)
+        return True
